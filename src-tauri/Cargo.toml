@@ -1,6 +1,6 @@
 [package]
 name = "hane-dlc-pack-creator"
-version = "1.0.0"
+version = "1.0.1"
 description = "Creates ready to fill GTA V DLC packs"
 authors = ["Aref"]
 license = "MIT"
