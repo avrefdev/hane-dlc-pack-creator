@@ -92,6 +92,14 @@ fn create_pack(app: AppHandle, kind: Kind, name: String, output: String) -> Resu
 }
 
 #[tauri::command]
+fn pack_dir(folder: String) -> String {
+    if folder.is_empty() {
+        return String::new();
+    }
+    pack::pack_dir(Path::new(&folder)).display().to_string()
+}
+
+#[tauri::command]
 fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
     app.clipboard().write_text(text).map_err(|e| e.to_string())
 }
@@ -122,6 +130,7 @@ pub fn run() {
             select_folder,
             remove_folder,
             create_pack,
+            pack_dir,
             copy_text,
             reveal
         ])

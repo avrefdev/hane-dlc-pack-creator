@@ -248,12 +248,39 @@ pub fn timestamp() -> String {
     chrono::Local::now().format("%m/%d/%Y %H:%M:%S").to_string()
 }
 
+fn is_gta_root(dir: &Path) -> bool {
+    ["GTA5.exe", "GTA5_Enhanced.exe", "PlayGTAV.exe"].iter().any(|exe| dir.join(exe).is_file())
+}
+
+fn lower(p: &Path) -> String {
+    p.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase()
+}
+
+pub fn pack_dir(output: &Path) -> PathBuf {
+    let dlcpacks = |mods: &Path| mods.join("update").join("x64").join("dlcpacks");
+    if is_gta_root(output) {
+        return dlcpacks(&output.join("mods"));
+    }
+    for dir in output.ancestors() {
+        let is_mods = dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods"));
+        if is_mods && dir.parent().is_some_and(is_gta_root) {
+            let target = dlcpacks(dir);
+            let (out, base) = (lower(output), lower(&target));
+            if out == base || out.starts_with(&format!("{base}\\")) {
+                return output.to_path_buf();
+            }
+            return target;
+        }
+    }
+    output.to_path_buf()
+}
+
 pub fn create(kind: Kind, raw_name: &str, output: &Path) -> Result<Created, String> {
     let name = normalize_name(raw_name)?;
     if output.as_os_str().is_empty() || !output.is_dir() {
         return Err("Choose an output folder first.".into());
     }
-    let folder: PathBuf = output.join(&name);
+    let folder: PathBuf = pack_dir(output).join(&name);
     let rpf_path = folder.join("dlc.rpf");
     if rpf_path.exists() {
         return Err(format!("A pack named \"{name}\" already exists in this folder."));

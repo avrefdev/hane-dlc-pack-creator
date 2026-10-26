@@ -3,7 +3,7 @@ const appWindow = window.__TAURI__.window.getCurrentWindow();
 
 const $ = (id) => document.getElementById(id);
 
-const state = { kind: "Map", folder: "", folders: [], created: "", lastKey: "", resultTitle: "" };
+const state = { kind: "Map", folder: "", packDir: "", folders: [], created: "", lastKey: "", resultTitle: "" };
 
 $("win-min").addEventListener("click", () => appWindow.minimize());
 $("win-close").addEventListener("click", () => appWindow.close());
@@ -60,7 +60,7 @@ function renderTarget() {
   const name = cleanName();
   const target = $("target");
   if (state.folder && name) {
-    const folder = state.folder.replace(/\\$/, "");
+    const folder = (state.packDir || state.folder).replace(/\\$/, "");
     const base = folder.length <= 24 ? folder : "…\\" + fitMiddle(folder.split("\\").pop(), 18);
     target.textContent = `${base}\\${fitMiddle(name, 26)}\\dlc.rpf`;
     target.title = `${folder}\\${name}\\dlc.rpf`;
@@ -115,9 +115,24 @@ function renderPop() {
   }
 }
 
+async function refreshPackDir() {
+  const folder = state.folder;
+  let dir = "";
+  try {
+    dir = await invoke("pack_dir", { folder });
+  } catch (e) {
+    dir = "";
+  }
+  if (folder !== state.folder) return;
+  state.packDir = dir;
+  renderTarget();
+}
+
 function applyFolders(f) {
   state.folders = f.items;
   state.folder = f.current;
+  state.packDir = "";
+  refreshPackDir();
   renderFolder();
   renderPop();
   if ($("pop").classList.contains("open")) placePop();
