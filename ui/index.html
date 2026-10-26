@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Hane DLC Pack Creator</title>
+  <link rel="stylesheet" href="icons.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <img src="img/logo.svg" alt="" data-tauri-drag-region />
+      <span class="brand-name" data-tauri-drag-region>HANE</span>
+      <span class="brand-app" data-tauri-drag-region>DLC Pack Creator</span>
+    </div>
+    <div class="win">
+      <button id="win-min" aria-label="Minimize"><i class="ti ti-minus"></i></button>
+      <button id="win-close" class="close" aria-label="Close"><i class="ti ti-x"></i></button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav id="nav">
+      <div class="nav-bar" id="nav-bar"></div>
+      <button class="nv active" data-page="create"><i class="ti ti-package"></i>Create</button>
+      <button class="nv" data-page="guide"><i class="ti ti-book-2"></i>Guide</button>
+      <div class="spacer"></div>
+      <div class="version">v1.0.0</div>
+    </nav>
+
+    <main>
+      <section class="page active" id="page-create">
+        <h1 class="rise" style="--i:0">Create DLC pack</h1>
+
+        <div class="row rise" style="--i:1">
+          <label class="lb" for="name">DLC name</label>
+          <input id="name" type="text" spellcheck="false" autocomplete="off" maxlength="64" placeholder="mymap" />
+        </div>
+
+        <div class="row rise" style="--i:2">
+          <span class="lb">Type</span>
+          <div class="seg" id="kind">
+            <div class="seg-thumb" id="kind-thumb"></div>
+            <button class="on" data-kind="Map"><i class="ti ti-map-2"></i>Map</button>
+            <button data-kind="Vehicle"><i class="ti ti-car"></i>Vehicle</button>
+          </div>
+        </div>
+
+        <div class="row rise" style="--i:3">
+          <span class="lb">Save to</span>
+          <button class="folder" id="folder-btn" aria-haspopup="listbox" aria-expanded="false">
+            <i class="ti ti-folder"></i>
+            <span id="folder" class="folder-path empty">No folder selected</span>
+            <i class="ti ti-chevron-down chev"></i>
+          </button>
+        </div>
+
+        <div class="actions rise" style="--i:4">
+          <button id="create" class="primary"><span>Create pack</span><i class="ti ti-arrow-right"></i></button>
+          <span id="target" class="target"></span>
+        </div>
+
+        <div id="message" class="message"></div>
+
+        <div id="result" class="result">
+          <div class="result-head">
+            <i class="ti ti-check"></i>
+            <span id="result-title">Pack created</span>
+            <button id="open" class="ghost"><i class="ti ti-folder-open"></i>Open folder</button>
+          </div>
+          <div class="lb">dlclist.xml line</div>
+          <div class="snippet">
+            <span id="item"></span>
+            <button id="copy" class="icon" aria-label="Copy"><i class="ti ti-copy"></i></button>
+          </div>
+        </div>
+
+        <div class="pop" id="pop" role="listbox" aria-label="Saved folders">
+          <div id="pop-list"></div>
+          <button class="pop-add" id="add"><i class="ti ti-plus"></i>Add folder</button>
+        </div>
+      </section>
+
+      <section class="page" id="page-guide">
+        <h1 class="rise" style="--i:0">Guide</h1>
+        <div class="guide">
+          <div class="step rise" style="--i:1">
+            <span class="num">1</span>
+            <p>Copy the <b class="pk">mymap</b> folder into <b>Grand Theft Auto V\mods\update\x64\dlcpacks</b>.</p>
+          </div>
+          <div class="step rise" style="--i:2">
+            <span class="num">2</span>
+            <p>Add the dlclist line to <b>mods\update\update.rpf\common\data\dlclist.xml</b>.</p>
+          </div>
+          <div class="cols">
+            <div class="col rise" style="--i:3">
+              <div class="lb"><i class="ti ti-map-2"></i>Map pack</div>
+              <p><span class="ft">ymap, ytyp, ymf</span><b>x64\<wbr>levels\<wbr>gta5\<wbr><span class="pk">mymap</span>_metadata.rpf</b></p>
+              <p><span class="ft">ydr, ydd, ybn</span><b>x64\<wbr>levels\<wbr>gta5\<wbr><span class="pk">mymap</span>.rpf</b></p>
+            </div>
+            <div class="col rise" style="--i:4">
+              <div class="lb"><i class="ti ti-car"></i>Vehicle pack</div>
+              <p><span class="ft">vehicles, carcols, carvariations, handling, dlctext .meta</span><b>data</b></p>
+              <p><span class="ft">yft, ytd</span><b>x64\<wbr>vehicles.rpf</b></p>
+              <p><span class="ft">global.gxt2</span><b>x64\<wbr>data\<wbr>lang\<wbr>americandlc.rpf</b></p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
