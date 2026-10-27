@@ -1271,7 +1271,7 @@ dependencies = [
 
 [[package]]
 name = "hane-dlc-pack-creator"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "chrono",
  "flate2",

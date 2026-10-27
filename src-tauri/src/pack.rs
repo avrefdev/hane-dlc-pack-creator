@@ -223,9 +223,9 @@ pub fn empty_gxt2() -> Vec<u8> {
     b
 }
 
-pub const META_EXTS: [&str; 5] = ["ymt", "ytd", "ytyp", "ymap", "ynv"];
-pub const MAIN_EXTS: [&str; 14] = [
-    "ydr", "ydd", "ybn", "yft", "ycd", "ypt", "ymf", "yld", "yed", "ynd", "yvr", "ywr", "ypdb", "yfd",
+pub const META_EXTS: [&str; 6] = ["ymt", "ytd", "ytyp", "ymap", "ynv", "ymf"];
+pub const MAIN_EXTS: [&str; 13] = [
+    "ydr", "ydd", "ybn", "yft", "ycd", "ypt", "yld", "yed", "ynd", "yvr", "ywr", "ypdb", "yfd",
 ];
 
 #[derive(Default)]

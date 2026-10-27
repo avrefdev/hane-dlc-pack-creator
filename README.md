@@ -9,17 +9,17 @@ A rewrite of skylumz's Dlc Pack Creator 1.1 with the same output for map packs, 
 1. On first launch, select `GTA5.exe` (or `GTA5_Enhanced.exe`). The location is checked on every launch and asked again if the game moved. It can be changed in **Settings**.
 2. Type a DLC name (no spaces), pick **Map** or **Vehicle**.
 3. Click **Create pack**. The pack is written to `<GTA V>\mods\update\x64\dlcpacks\<name>\dlc.rpf`.
+4. Copy the `dlclist.xml` line from the result and follow the steps in the **Guide** tab.
 
 ### Linking a FiveM map resource
 
 For map packs you can select a FiveM resource folder. Its GTA files are packed automatically:
 
-- `ymt`, `ytd`, `ytyp`, `ymap`, `ynv` go into `<name>_metadata.rpf`
-- other GTA files (`ydr`, `ydd`, `ybn`, `yft`, `ymf`...) go into `<name>.rpf`
+- `ymt`, `ytd`, `ytyp`, `ymap`, `ynv`, `ymf` go into `<name>_metadata.rpf`
+- other GTA files (`ydr`, `ydd`, `ybn`, `yft`...) go into `<name>.rpf`
 - `.lua` and other FiveM files are skipped, and files with the same name stop the build
 
 The link is saved. When the resource changes, press **Sync** on the **Linked** page to rebuild the pack. The previous pack is kept as `dlc.rpf.bak`.
-4. Copy the `dlclist.xml` line from the result and follow the steps in the **Guide** tab.
 
 ## What is inside a pack
 
