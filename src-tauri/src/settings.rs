@@ -1,49 +1,21 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-pub const MAX_FOLDERS: usize = 8;
+#[derive(Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Link {
+    pub name: String,
+    pub resource: String,
+    pub synced: String,
+}
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    pub gta_path: String,
+    pub links: Vec<Link>,
+    #[serde(skip_serializing)]
     pub output_folder: String,
-    pub folders: Vec<String>,
-}
-
-pub fn same(a: &str, b: &str) -> bool {
-    let key = |p: &str| p.trim_end_matches(['\\', '/']).to_lowercase();
-    key(a) == key(b)
-}
-
-impl Settings {
-    fn tidy(mut self) -> Self {
-        if !self.output_folder.is_empty() && !self.folders.iter().any(|f| same(f, &self.output_folder)) {
-            self.folders.insert(0, self.output_folder.clone());
-        }
-        let mut kept: Vec<String> = Vec::new();
-        for f in self.folders.drain(..) {
-            if !f.trim().is_empty() && !kept.iter().any(|k| same(k, &f)) {
-                kept.push(f);
-            }
-        }
-        kept.truncate(MAX_FOLDERS);
-        self.folders = kept;
-        self
-    }
-
-    pub fn use_folder(&mut self, path: &str) {
-        self.folders.retain(|f| !same(f, path));
-        self.folders.insert(0, path.to_string());
-        self.folders.truncate(MAX_FOLDERS);
-        self.output_folder = path.to_string();
-    }
-
-    pub fn remove_folder(&mut self, path: &str) {
-        self.folders.retain(|f| !same(f, path));
-        if same(&self.output_folder, path) {
-            self.output_folder = self.folders.first().cloned().unwrap_or_default();
-        }
-    }
 }
 
 fn file(dir: &PathBuf) -> PathBuf {
@@ -55,7 +27,6 @@ pub fn load(dir: &PathBuf) -> Settings {
         .ok()
         .and_then(|s| serde_json::from_str::<Settings>(&s).ok())
         .unwrap_or_default()
-        .tidy()
 }
 
 pub fn save(dir: &PathBuf, s: &Settings) -> Result<(), String> {

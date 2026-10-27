@@ -5,6 +5,7 @@ use std::io::Write;
 
 pub const MAGIC: u32 = 0x5250_4637;
 pub const ENCRYPTION_OPEN: u32 = 0x4E45_504F;
+pub const RSC7: u32 = 0x3743_5352;
 const DIR_IDENT: u32 = 0x7FFF_FF00;
 const BLOCK: usize = 512;
 const MAX_U24: usize = 0xFF_FFFF;
@@ -81,6 +82,10 @@ fn pad_to(buf: &mut Vec<u8>, n: usize) {
     }
 }
 
+pub fn is_resource(data: &[u8]) -> bool {
+    data.len() >= 16 && data[..4] == RSC7.to_le_bytes()
+}
+
 fn deflate(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
     enc.write_all(data).map_err(|e| e.to_string())?;
@@ -150,6 +155,42 @@ pub fn build(root: &Dir) -> Result<Vec<u8>, String> {
                 entries.extend_from_slice(&count.to_le_bytes());
             }
             Item::File(f) => {
+                if let Content::Data(raw) = &f.content {
+                    if is_resource(raw) {
+                        if offsets[i] > 0xFFFF {
+                            return Err("Name table is too large".into());
+                        }
+                        if raw.len() > u32::MAX as usize {
+                            return Err(format!("\"{}\" is too large", f.name));
+                        }
+                        if next_block > MAX_BLOCK_OFFSET {
+                            return Err("Archive is too large".into());
+                        }
+                        let mut payload = raw.clone();
+                        let len = payload.len() as u32;
+                        if payload.len() >= MAX_U24 {
+                            payload[7] = (len & 0xFF) as u8;
+                            payload[14] = ((len >> 8) & 0xFF) as u8;
+                            payload[5] = ((len >> 16) & 0xFF) as u8;
+                            payload[2] = ((len >> 24) & 0xFF) as u8;
+                        }
+                        let system = u32::from_le_bytes(raw[8..12].try_into().unwrap());
+                        let graphics = u32::from_le_bytes(raw[12..16].try_into().unwrap());
+                        let size_field = (payload.len().min(MAX_U24)) as u32;
+                        let off = next_block as u32;
+                        entries.extend_from_slice(&(offsets[i] as u16).to_le_bytes());
+                        entries.extend_from_slice(&size_field.to_le_bytes()[..3]);
+                        entries.push((off & 0xFF) as u8);
+                        entries.push(((off >> 8) & 0xFF) as u8);
+                        entries.push((((off >> 16) & 0xFF) as u8) | 0x80);
+                        entries.extend_from_slice(&system.to_le_bytes());
+                        entries.extend_from_slice(&graphics.to_le_bytes());
+                        next_block += blocks(payload.len());
+                        data.extend_from_slice(&payload);
+                        pad_to(&mut data, BLOCK);
+                        continue;
+                    }
+                }
                 let (payload, stored, size) = match &f.content {
                     Content::Data(raw) => {
                         let packed = deflate(raw)?;

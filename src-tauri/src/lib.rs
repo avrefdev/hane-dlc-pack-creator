@@ -4,7 +4,6 @@ mod settings;
 
 use pack::{Created, Kind};
 use serde::Serialize;
-use settings::Settings;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -13,90 +12,151 @@ use tauri_plugin_dialog::DialogExt;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FolderItem {
+struct Gta {
     path: String,
-    exists: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Folders {
-    current: String,
-    lost: String,
-    items: Vec<FolderItem>,
+    valid: bool,
+    dlcpacks: String,
 }
 
 fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_config_dir().map_err(|e| e.to_string())
 }
 
-fn is_dir(path: &str) -> bool {
-    !path.is_empty() && Path::new(path).is_dir()
+fn gta_state(path: &str) -> Gta {
+    let valid = !path.is_empty() && pack::is_gta_root(Path::new(path));
+    let dlcpacks = if valid { pack::dlcpacks_dir(Path::new(path)).display().to_string() } else { String::new() };
+    Gta { path: path.to_string(), valid, dlcpacks }
 }
 
-fn folders(s: &Settings) -> Folders {
-    let items: Vec<FolderItem> = s.folders.iter().map(|p| FolderItem { path: p.clone(), exists: is_dir(p) }).collect();
-    let (current, lost) = if is_dir(&s.output_folder) {
-        (s.output_folder.clone(), String::new())
-    } else {
-        let fallback = items.iter().find(|i| i.exists).map(|i| i.path.clone()).unwrap_or_default();
-        (fallback, s.output_folder.clone())
-    };
-    Folders { current, lost, items }
-}
-
-fn update(app: &AppHandle, change: impl FnOnce(&mut Settings)) -> Result<Folders, String> {
+fn saved_gta(app: &AppHandle) -> Result<String, String> {
     let dir = config_dir(app)?;
     let mut s = settings::load(&dir);
-    change(&mut s);
-    settings::save(&dir, &s)?;
-    let mut f = folders(&s);
-    f.lost.clear();
-    Ok(f)
+    if s.gta_path.is_empty() && !s.output_folder.is_empty() {
+        if let Some(root) = pack::find_gta_root(Path::new(&s.output_folder)) {
+            s.gta_path = root.display().to_string();
+            settings::save(&dir, &s)?;
+        }
+    }
+    Ok(s.gta_path)
 }
 
 #[tauri::command]
-fn start(app: AppHandle) -> Result<Folders, String> {
-    Ok(folders(&settings::load(&config_dir(&app)?)))
+fn start(app: AppHandle) -> Result<Gta, String> {
+    Ok(gta_state(&saved_gta(&app)?))
 }
 
 #[tauri::command]
-async fn pick_folder(app: AppHandle, current: String) -> Result<Option<Folders>, String> {
-    let mut dialog = app.dialog().file().set_title("Choose where to save DLC packs");
-    if is_dir(&current) {
+async fn pick_gta(app: AppHandle) -> Result<Option<Gta>, String> {
+    let current = saved_gta(&app)?;
+    let mut dialog = app
+        .dialog()
+        .file()
+        .set_title("Select GTA5.exe")
+        .add_filter("GTA V", &["exe"]);
+    if !current.is_empty() && Path::new(&current).is_dir() {
         dialog = dialog.set_directory(&current);
     }
-    let Some(picked) = dialog.blocking_pick_folder() else { return Ok(None) };
-    let folder = picked.into_path().map_err(|e| e.to_string())?.display().to_string();
-    update(&app, |s| s.use_folder(&folder)).map(Some)
-}
-
-#[tauri::command]
-fn select_folder(app: AppHandle, path: String) -> Result<Folders, String> {
-    if !is_dir(&path) {
-        return Err("This folder no longer exists.".into());
+    let Some(picked) = dialog.blocking_pick_file() else { return Ok(None) };
+    let exe = picked.into_path().map_err(|e| e.to_string())?;
+    let name = exe.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    if !pack::GTA_EXES.iter().any(|e| e.eq_ignore_ascii_case(&name)) {
+        return Err("That is not GTA5.exe. Select GTA5.exe from your GTA V folder.".into());
     }
-    update(&app, |s| s.use_folder(&path))
+    let root = exe.parent().ok_or("Invalid location.")?.display().to_string();
+    let dir = config_dir(&app)?;
+    let mut s = settings::load(&dir);
+    s.gta_path = root.clone();
+    settings::save(&dir, &s)?;
+    Ok(Some(gta_state(&root)))
+}
+
+fn dlcpacks(app: &AppHandle) -> Result<PathBuf, String> {
+    let gta = saved_gta(app)?;
+    if !pack::is_gta_root(Path::new(&gta)) {
+        return Err("GTA V was not found. Select GTA5.exe again in Settings.".into());
+    }
+    Ok(pack::dlcpacks_dir(Path::new(&gta)))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkInfo {
+    name: String,
+    resource: String,
+    synced: String,
+    resource_exists: bool,
+}
+
+fn link_infos(s: &settings::Settings) -> Vec<LinkInfo> {
+    s.links
+        .iter()
+        .map(|l| LinkInfo {
+            name: l.name.clone(),
+            resource: l.resource.clone(),
+            synced: l.synced.clone(),
+            resource_exists: Path::new(&l.resource).is_dir(),
+        })
+        .collect()
+}
+
+fn save_link(app: &AppHandle, name: &str, resource: &str) -> Result<(), String> {
+    let dir = config_dir(app)?;
+    let mut s = settings::load(&dir);
+    s.links.retain(|l| l.name != name);
+    s.links.insert(
+        0,
+        settings::Link { name: name.to_string(), resource: resource.to_string(), synced: pack::timestamp() },
+    );
+    settings::save(&dir, &s)
 }
 
 #[tauri::command]
-fn remove_folder(app: AppHandle, path: String) -> Result<Folders, String> {
-    update(&app, |s| s.remove_folder(&path))
+async fn pick_resource(app: AppHandle) -> Result<Option<pack::Scan>, String> {
+    let Some(picked) = app.dialog().file().set_title("Select the FiveM map resource folder").blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|e| e.to_string())?;
+    pack::scan(&path).map(Some)
 }
 
 #[tauri::command]
-fn create_pack(app: AppHandle, kind: Kind, name: String, output: String) -> Result<Created, String> {
-    let created = pack::create(kind, &name, Path::new(&output))?;
-    let _ = update(&app, |s| s.use_folder(&output));
+async fn create_pack(app: AppHandle, kind: Kind, name: String, resource: Option<String>) -> Result<Created, String> {
+    let out = dlcpacks(&app)?;
+    let resource = resource.filter(|r| !r.is_empty() && kind == Kind::Map);
+    let created = pack::create(kind, &name, &out, resource.as_deref().map(Path::new))?;
+    if let Some(r) = resource {
+        save_link(&app, &pack::normalize_name(&name)?, &r)?;
+    }
     Ok(created)
 }
 
 #[tauri::command]
-fn pack_dir(folder: String) -> String {
-    if folder.is_empty() {
-        return String::new();
+fn links(app: AppHandle) -> Result<Vec<LinkInfo>, String> {
+    Ok(link_infos(&settings::load(&config_dir(&app)?)))
+}
+
+#[tauri::command]
+async fn sync_link(app: AppHandle, name: String) -> Result<Vec<LinkInfo>, String> {
+    let out = dlcpacks(&app)?;
+    let dir = config_dir(&app)?;
+    let s = settings::load(&dir);
+    let link = s.links.iter().find(|l| l.name == name).cloned().ok_or("This link no longer exists.")?;
+    pack::sync(&link.name, &out, Path::new(&link.resource))?;
+    let mut s = settings::load(&dir);
+    if let Some(l) = s.links.iter_mut().find(|l| l.name == name) {
+        l.synced = pack::timestamp();
     }
-    pack::pack_dir(Path::new(&folder)).display().to_string()
+    settings::save(&dir, &s)?;
+    Ok(link_infos(&s))
+}
+
+#[tauri::command]
+fn unlink(app: AppHandle, name: String) -> Result<Vec<LinkInfo>, String> {
+    let dir = config_dir(&app)?;
+    let mut s = settings::load(&dir);
+    s.links.retain(|l| l.name != name);
+    settings::save(&dir, &s)?;
+    Ok(link_infos(&s))
 }
 
 #[tauri::command]
@@ -115,7 +175,7 @@ fn reveal(path: String) -> Result<(), String> {
     } else if target.is_dir() {
         cmd.arg(target);
     } else {
-        return Err("That location no longer exists.".into());
+        return Err("That location does not exist yet.".into());
     }
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
@@ -126,11 +186,12 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             start,
-            pick_folder,
-            select_folder,
-            remove_folder,
+            pick_gta,
+            pick_resource,
             create_pack,
-            pack_dir,
+            links,
+            sync_link,
+            unlink,
             copy_text,
             reveal
         ])

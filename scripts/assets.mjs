@@ -7,7 +7,7 @@ for (const s of ["latin", "latin-ext"]) copyFileSync(`${inter}/inter-${s}-wght-n
 const tabler = "node_modules/@tabler/icons-webfont/dist";
 copyFileSync(`${tabler}/fonts/tabler-icons.woff2`, "ui/fonts/tabler-icons.woff2");
 const css = readFileSync(`${tabler}/tabler-icons.min.css`, "utf8");
-const used = ["package", "book-2", "minus", "x", "map-2", "car", "folder", "folder-open", "copy", "check", "alert-triangle", "arrow-right", "loader-2", "chevron-down", "plus"];
+const used = ["package", "book-2", "minus", "x", "map-2", "car", "folder", "folder-open", "copy", "check", "alert-triangle", "arrow-right", "loader-2", "settings", "link", "refresh"];
 const clean = css.replace(/\/\*[\s\S]*?\*\//g, "");
 const head = clean.slice(0, clean.indexOf(".ti-"));
 const rules = used.map((n) => {

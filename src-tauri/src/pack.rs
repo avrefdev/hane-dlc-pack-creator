@@ -31,6 +31,8 @@ pub struct Created {
     pub folder: String,
     pub rpf: String,
     pub item: String,
+    pub meta: usize,
+    pub main: usize,
 }
 
 pub fn normalize_name(raw: &str) -> Result<String, String> {
@@ -221,15 +223,110 @@ pub fn empty_gxt2() -> Vec<u8> {
     b
 }
 
-pub fn build_tree(kind: Kind, name: &str, timestamp: &str) -> Dir {
+pub const META_EXTS: [&str; 5] = ["ymt", "ytd", "ytyp", "ymap", "ynv"];
+pub const MAIN_EXTS: [&str; 14] = [
+    "ydr", "ydd", "ybn", "yft", "ycd", "ypt", "ymf", "yld", "yed", "ynd", "yvr", "ywr", "ypdb", "yfd",
+];
+
+#[derive(Default)]
+pub struct Assets {
+    pub meta: Vec<(String, PathBuf)>,
+    pub main: Vec<(String, PathBuf)>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Scan {
+    pub path: String,
+    pub meta: usize,
+    pub main: usize,
+}
+
+fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("Could not read {}: {e}", dir.display()))?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let hidden = entry.file_name().to_string_lossy().starts_with('.');
+        match entry.file_type() {
+            Ok(t) if t.is_dir() && !hidden => walk(&path, out)?,
+            Ok(t) if t.is_file() => out.push(path),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+pub fn collect(resource: &Path) -> Result<Assets, String> {
+    if !resource.is_dir() {
+        return Err("The FiveM resource folder no longer exists.".into());
+    }
+    let mut files = Vec::new();
+    walk(resource, &mut files)?;
+    files.sort();
+    let mut assets = Assets::default();
+    let mut seen: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+    let mut conflicts: Vec<String> = Vec::new();
+    for path in files {
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let is_meta = META_EXTS.contains(&ext.as_str());
+        if !is_meta && !MAIN_EXTS.contains(&ext.as_str()) {
+            continue;
+        }
+        let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        if !name.is_ascii() {
+            return Err(format!("\"{name}\" has a non English character in its name."));
+        }
+        if let Some(first) = seen.get(&name) {
+            let rel = |p: &Path| p.strip_prefix(resource).unwrap_or(p).display().to_string();
+            conflicts.push(format!("{} and {}", rel(first), rel(&path)));
+            continue;
+        }
+        seen.insert(name.clone(), path.clone());
+        if is_meta {
+            assets.meta.push((name, path));
+        } else {
+            assets.main.push((name, path));
+        }
+    }
+    if !conflicts.is_empty() {
+        let shown: Vec<String> = conflicts.iter().take(3).cloned().collect();
+        let more = if conflicts.len() > 3 { format!(" and {} more", conflicts.len() - 3) } else { String::new() };
+        return Err(format!("Files with the same name: {}{more}.", shown.join(", ")));
+    }
+    if assets.meta.is_empty() && assets.main.is_empty() {
+        return Err("No GTA files (ymap, ytyp, ydr...) were found in this folder.".into());
+    }
+    Ok(assets)
+}
+
+pub fn scan(resource: &Path) -> Result<Scan, String> {
+    let a = collect(resource)?;
+    Ok(Scan { path: resource.display().to_string(), meta: a.meta.len(), main: a.main.len() })
+}
+
+fn add_files(dir: &mut Dir, files: &[(String, PathBuf)]) -> Result<(), String> {
+    for (name, path) in files {
+        let data = std::fs::read(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+        dir.file(name, data);
+    }
+    Ok(())
+}
+
+pub fn build_tree(kind: Kind, name: &str, timestamp: &str, assets: Option<&Assets>) -> Result<Dir, String> {
     let mut root = Dir::root();
     root.file("content.xml", content_xml(kind, name));
     root.file("setup2.xml", setup2_xml(kind, name, timestamp));
     match kind {
         Kind::Map => {
             let gta5 = root.dir("x64").dir("levels").dir("gta5");
-            gta5.archive(&format!("{name}.rpf"));
-            gta5.archive(&format!("{name}_metadata.rpf"));
+            let main = gta5.archive(&format!("{name}.rpf"));
+            if let Some(a) = assets {
+                add_files(main, &a.main)?;
+            }
+            let meta = gta5.archive(&format!("{name}_metadata.rpf"));
+            if let Some(a) = assets {
+                add_files(meta, &a.meta)?;
+            }
         }
         Kind::Vehicle => {
             root.dir("data");
@@ -241,65 +338,86 @@ pub fn build_tree(kind: Kind, name: &str, timestamp: &str) -> Dir {
             x64.archive("vehicles.rpf");
         }
     }
-    root
+    Ok(root)
 }
 
 pub fn timestamp() -> String {
     chrono::Local::now().format("%m/%d/%Y %H:%M:%S").to_string()
 }
 
-fn is_gta_root(dir: &Path) -> bool {
-    ["GTA5.exe", "GTA5_Enhanced.exe", "PlayGTAV.exe"].iter().any(|exe| dir.join(exe).is_file())
+pub const GTA_EXES: [&str; 3] = ["GTA5.exe", "GTA5_Enhanced.exe", "PlayGTAV.exe"];
+
+pub fn is_gta_root(dir: &Path) -> bool {
+    GTA_EXES.iter().any(|exe| dir.join(exe).is_file())
 }
 
-fn lower(p: &Path) -> String {
-    p.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase()
+pub fn find_gta_root(path: &Path) -> Option<PathBuf> {
+    path.ancestors().find(|d| is_gta_root(d)).map(Path::to_path_buf)
 }
 
-pub fn pack_dir(output: &Path) -> PathBuf {
-    let dlcpacks = |mods: &Path| mods.join("update").join("x64").join("dlcpacks");
-    if is_gta_root(output) {
-        return dlcpacks(&output.join("mods"));
-    }
-    for dir in output.ancestors() {
-        let is_mods = dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods"));
-        if is_mods && dir.parent().is_some_and(is_gta_root) {
-            let target = dlcpacks(dir);
-            let (out, base) = (lower(output), lower(&target));
-            if out == base || out.starts_with(&format!("{base}\\")) {
-                return output.to_path_buf();
-            }
-            return target;
-        }
-    }
-    output.to_path_buf()
+pub fn dlcpacks_dir(gta_root: &Path) -> PathBuf {
+    gta_root.join("mods").join("update").join("x64").join("dlcpacks")
 }
 
-pub fn create(kind: Kind, raw_name: &str, output: &Path) -> Result<Created, String> {
-    let name = normalize_name(raw_name)?;
-    if output.as_os_str().is_empty() || !output.is_dir() {
-        return Err("Choose an output folder first.".into());
-    }
-    let folder: PathBuf = pack_dir(output).join(&name);
-    let rpf_path = folder.join("dlc.rpf");
-    if rpf_path.exists() {
-        return Err(format!("A pack named \"{name}\" already exists in this folder."));
-    }
-    let bytes = rpf::build(&build_tree(kind, &name, &timestamp()))?;
-    std::fs::create_dir_all(&folder).map_err(|e| format!("Could not create {}: {e}", folder.display()))?;
+fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(&rpf_path)
-        .map_err(|e| format!("Could not write {}: {e}", rpf_path.display()))?;
-    if let Err(e) = f.write_all(&bytes).and_then(|_| f.sync_all()) {
+        .open(path)
+        .map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    if let Err(e) = f.write_all(bytes).and_then(|_| f.sync_all()) {
         drop(f);
-        let _ = std::fs::remove_file(&rpf_path);
-        return Err(format!("Could not write {}: {e}", rpf_path.display()));
+        let _ = std::fs::remove_file(path);
+        return Err(format!("Could not write {}: {e}", path.display()));
     }
-    Ok(Created {
+    Ok(())
+}
+
+fn created(folder: &Path, rpf_path: &Path, name: &str, assets: Option<&Assets>) -> Created {
+    Created {
         folder: folder.display().to_string(),
         rpf: rpf_path.display().to_string(),
-        item: dlclist_item(&name),
-    })
+        item: dlclist_item(name),
+        meta: assets.map_or(0, |a| a.meta.len()),
+        main: assets.map_or(0, |a| a.main.len()),
+    }
+}
+
+pub fn create(kind: Kind, raw_name: &str, output: &Path, resource: Option<&Path>) -> Result<Created, String> {
+    let name = normalize_name(raw_name)?;
+    let folder: PathBuf = output.join(&name);
+    let rpf_path = folder.join("dlc.rpf");
+    if rpf_path.exists() {
+        return Err(format!("A pack named \"{name}\" already exists in dlcpacks."));
+    }
+    let assets = match (kind, resource) {
+        (Kind::Map, Some(r)) => Some(collect(r)?),
+        _ => None,
+    };
+    let bytes = rpf::build(&build_tree(kind, &name, &timestamp(), assets.as_ref())?)?;
+    std::fs::create_dir_all(&folder).map_err(|e| format!("Could not create {}: {e}", folder.display()))?;
+    write_new(&rpf_path, &bytes)?;
+    Ok(created(&folder, &rpf_path, &name, assets.as_ref()))
+}
+
+pub fn sync(name: &str, output: &Path, resource: &Path) -> Result<Created, String> {
+    let name = normalize_name(name)?;
+    let assets = collect(resource)?;
+    let bytes = rpf::build(&build_tree(Kind::Map, &name, &timestamp(), Some(&assets))?)?;
+    let folder: PathBuf = output.join(&name);
+    std::fs::create_dir_all(&folder).map_err(|e| format!("Could not create {}: {e}", folder.display()))?;
+    let rpf_path = folder.join("dlc.rpf");
+    let tmp = folder.join("dlc.rpf.new");
+    let bak = folder.join("dlc.rpf.bak");
+    let _ = std::fs::remove_file(&tmp);
+    write_new(&tmp, &bytes)?;
+    if rpf_path.exists() {
+        let _ = std::fs::remove_file(&bak);
+        std::fs::rename(&rpf_path, &bak).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("Could not replace {}. Close OpenIV or the game if it is open. ({e})", rpf_path.display())
+        })?;
+    }
+    std::fs::rename(&tmp, &rpf_path).map_err(|e| format!("Could not write {}: {e}", rpf_path.display()))?;
+    Ok(created(&folder, &rpf_path, &name, Some(&assets)))
 }

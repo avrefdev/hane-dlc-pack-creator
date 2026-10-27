@@ -3,7 +3,7 @@ const appWindow = window.__TAURI__.window.getCurrentWindow();
 
 const $ = (id) => document.getElementById(id);
 
-const state = { kind: "Map", folder: "", packDir: "", folders: [], created: "", lastKey: "", resultTitle: "" };
+const state = { kind: "Map", gta: null, resource: null, created: "", lastKey: "", resultTitle: "" };
 
 $("win-min").addEventListener("click", () => appWindow.minimize());
 $("win-close").addEventListener("click", () => appWindow.close());
@@ -19,8 +19,8 @@ function moveNavBar(btn) {
 navButtons.forEach((btn) =>
   btn.addEventListener("click", () => {
     if (btn.classList.contains("active")) return;
-    closePop();
     navButtons.forEach((b) => b.classList.toggle("active", b === btn));
+    if (btn.dataset.page === "linked") loadLinks();
     document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === `page-${btn.dataset.page}`));
     moveNavBar(btn);
   }),
@@ -30,6 +30,7 @@ const kindButtons = [...document.querySelectorAll("#kind button")];
 kindButtons.forEach((btn, i) =>
   btn.addEventListener("click", () => {
     state.kind = btn.dataset.kind;
+    $("resource-row").classList.toggle("off", state.kind !== "Map");
     kindButtons.forEach((b) => b.classList.toggle("on", b === btn));
     $("kind-thumb").style.transform = `translateX(${i * 100}%)`;
   }),
@@ -46,24 +47,22 @@ function shortPath(path, max = 58) {
   return out.length <= max ? out : "…" + path.slice(-(max - 1));
 }
 
-function cleanName() {
-  return $("name").value.trim().toLowerCase();
-}
-
 function fitMiddle(text, max) {
   if (text.length <= max) return text;
   const head = Math.ceil((max - 1) / 2);
   return text.slice(0, head) + "…" + text.slice(text.length - (max - 1 - head));
 }
 
+function cleanName() {
+  return $("name").value.trim().toLowerCase();
+}
+
 function renderTarget() {
   const name = cleanName();
   const target = $("target");
-  if (state.folder && name) {
-    const folder = (state.packDir || state.folder).replace(/\\$/, "");
-    const base = folder.length <= 24 ? folder : "…\\" + fitMiddle(folder.split("\\").pop(), 18);
-    target.textContent = `${base}\\${fitMiddle(name, 26)}\\dlc.rpf`;
-    target.title = `${folder}\\${name}\\dlc.rpf`;
+  if (state.gta?.valid && name) {
+    target.textContent = `…\\dlcpacks\\${fitMiddle(name, 34)}\\dlc.rpf`;
+    target.title = `${state.gta.dlcpacks}\\${name}\\dlc.rpf`;
   } else {
     target.textContent = "";
     target.title = "";
@@ -71,180 +70,20 @@ function renderTarget() {
   document.querySelectorAll(".pk").forEach((el) => (el.textContent = name || "mymap"));
 }
 
-const samePath = (a, b) => a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
-
-function renderFolder() {
-  const el = $("folder");
-  el.classList.toggle("empty", !state.folder);
-  el.textContent = state.folder ? shortPath(state.folder) : "No folder selected";
-  el.title = state.folder;
-  renderTarget();
+function setMessage(id, text) {
+  const el = $(id);
+  el.textContent = text;
+  el.title = text;
+  el.classList.toggle("show", !!text);
 }
-
-function renderPop() {
-  const list = $("pop-list");
-  list.replaceChildren();
-  for (const item of state.folders) {
-    const row = document.createElement("div");
-    row.className = "pop-item";
-    row.classList.toggle("on", !!state.folder && samePath(item.path, state.folder));
-    row.classList.toggle("gone", !item.exists);
-
-    const pick = document.createElement("button");
-    pick.className = "pop-pick";
-    pick.setAttribute("role", "option");
-    pick.title = item.exists ? item.path : `${item.path} (missing)`;
-    const icon = document.createElement("i");
-    icon.className = item.exists ? "ti ti-folder" : "ti ti-alert-triangle";
-    const label = document.createElement("span");
-    label.textContent = shortPath(item.path, 54);
-    const tick = document.createElement("i");
-    tick.className = "ti ti-check tick";
-    pick.append(icon, label, tick);
-    pick.addEventListener("click", () => chooseFolder(item));
-
-    const del = document.createElement("button");
-    del.className = "pop-del";
-    del.setAttribute("aria-label", "Remove from list");
-    del.title = "Remove from list";
-    del.innerHTML = '<i class="ti ti-x"></i>';
-    del.addEventListener("click", () => removeFolder(item.path));
-
-    row.append(pick, del);
-    list.append(row);
-  }
-}
-
-async function refreshPackDir() {
-  const folder = state.folder;
-  let dir = "";
-  try {
-    dir = await invoke("pack_dir", { folder });
-  } catch (e) {
-    dir = "";
-  }
-  if (folder !== state.folder) return;
-  state.packDir = dir;
-  renderTarget();
-}
-
-function applyFolders(f) {
-  state.folders = f.items;
-  state.folder = f.current;
-  state.packDir = "";
-  refreshPackDir();
-  renderFolder();
-  renderPop();
-  if ($("pop").classList.contains("open")) placePop();
-}
-
-function placePop() {
-  const page = $("page-create").getBoundingClientRect();
-  const btn = $("folder-btn").getBoundingClientRect();
-  const pop = $("pop");
-  pop.style.left = `${btn.left - page.left}px`;
-  pop.style.width = `${btn.width}px`;
-  const limit = page.height - 8;
-  const h = pop.offsetHeight;
-  let top = btn.bottom - page.top + 6;
-  if (top + h > limit) {
-    const above = btn.top - page.top - 6 - h;
-    top = above >= 12 ? above : Math.max(12, limit - h);
-  }
-  pop.style.top = `${top}px`;
-}
-
-function openPop() {
-  if (!state.folders.length) {
-    addFolder();
-    return;
-  }
-  renderPop();
-  placePop();
-  $("pop").classList.add("open");
-  $("folder-btn").classList.add("open");
-  $("folder-btn").setAttribute("aria-expanded", "true");
-  const current = $("pop").querySelector(".pop-item.on .pop-pick") || $("pop").querySelector(".pop-pick, .pop-add");
-  current?.focus({ preventScroll: true });
-}
-
-function closePop(refocus = false) {
-  $("pop").classList.remove("open");
-  $("folder-btn").classList.remove("open");
-  $("folder-btn").setAttribute("aria-expanded", "false");
-  if (refocus) $("folder-btn").focus();
-}
-
-async function chooseFolder(item) {
-  if (!item.exists) {
-    closePop();
-    showMessage("That folder no longer exists. Remove it from the list or add it again.");
-    return;
-  }
-  try {
-    applyFolders(await invoke("select_folder", { path: item.path }));
-    closePop();
-    showMessage("");
-  } catch (e) {
-    closePop();
-    showMessage(String(e));
-  }
-}
-
-async function removeFolder(path) {
-  try {
-    applyFolders(await invoke("remove_folder", { path }));
-    if (!state.folders.length) closePop(true);
-    else $("pop").querySelector(".pop-pick, .pop-add")?.focus({ preventScroll: true });
-  } catch (e) {
-    closePop();
-    showMessage(String(e));
-  }
-}
-
-async function addFolder() {
-  closePop();
-  try {
-    const f = await invoke("pick_folder", { current: state.folder });
-    if (f) {
-      applyFolders(f);
-      showMessage("");
-    }
-  } catch (e) {
-    showMessage(String(e));
-  }
-}
-
-$("folder-btn").addEventListener("click", () => ($("pop").classList.contains("open") ? closePop() : openPop()));
-$("add").addEventListener("click", addFolder);
-document.addEventListener("mousedown", (e) => {
-  if (!$("pop").classList.contains("open")) return;
-  if (!e.target.closest("#pop") && !e.target.closest("#folder-btn")) closePop();
-});
-document.addEventListener("keydown", (e) => {
-  if (!$("pop").classList.contains("open")) return;
-  if (e.key === "Escape") {
-    closePop(true);
-    return;
-  }
-  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-  const items = [...$("pop").querySelectorAll(".pop-pick, .pop-add")];
-  const i = items.indexOf(document.activeElement.closest(".pop-item")?.querySelector(".pop-pick") || document.activeElement);
-  const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
-  items[next].focus({ preventScroll: true });
-  e.preventDefault();
-});
 
 function hideResult() {
   $("result").classList.remove("show");
 }
 
 function showMessage(text) {
-  const el = $("message");
-  el.textContent = text;
-  el.title = text;
   if (text) hideResult();
-  el.classList.toggle("show", !!text);
+  setMessage("message", text);
 }
 
 let noticeTimer;
@@ -261,6 +100,161 @@ function resultNotice(text) {
   }, 2600);
 }
 
+function applyGta(gta) {
+  state.gta = gta;
+  $("gta-path").textContent = gta.path ? shortPath(gta.path, 60) : "Not set";
+  $("gta-path").title = gta.path;
+  $("gta-path").classList.toggle("bad", !gta.valid);
+  $("dlcpacks-path").textContent = gta.valid ? shortPath(gta.dlcpacks, 60) : "";
+  $("dlcpacks-path").title = gta.dlcpacks;
+  renderTarget();
+  const setup = $("setup");
+  if (gta.valid) {
+    setup.classList.remove("show");
+    return;
+  }
+  $("setup-title").textContent = gta.path ? "GTA V was not found" : "Locate GTA V";
+  $("setup-text").textContent = gta.path
+    ? `GTA5.exe is no longer in ${shortPath(gta.path, 44)}. Select it again.`
+    : "Select GTA5.exe from your GTA V folder.";
+  setup.classList.add("show");
+}
+
+async function pickGta(messageId) {
+  setMessage(messageId, "");
+  try {
+    const gta = await invoke("pick_gta");
+    if (gta) {
+      applyGta(gta);
+      showMessage("");
+      hideResult();
+      state.lastKey = "";
+    }
+  } catch (e) {
+    setMessage(messageId, String(e));
+  }
+}
+
+$("setup-pick").addEventListener("click", () => pickGta("setup-message"));
+$("gta-change").addEventListener("click", () => pickGta("settings-message"));
+$("dlcpacks-open").addEventListener("click", async () => {
+  try {
+    await invoke("reveal", { path: state.gta?.dlcpacks || "" });
+    setMessage("settings-message", "");
+  } catch (e) {
+    setMessage("settings-message", String(e));
+  }
+});
+
+function renderResource() {
+  const r = state.resource;
+  const path = $("resource-path");
+  path.textContent = r ? shortPath(r.path, 46) : "Not linked";
+  path.title = r ? r.path : "";
+  path.classList.toggle("empty", !r);
+  $("resource-count").textContent = r ? `${r.meta + r.main} files` : "";
+  $("resource-count").title = r ? `${r.meta} to metadata, ${r.main} to the main rpf` : "";
+  $("resource-clear").hidden = !r;
+  $("resource-pick").textContent = r ? "Change" : "Select";
+}
+
+$("resource-pick").addEventListener("click", async () => {
+  try {
+    const r = await invoke("pick_resource");
+    if (r) {
+      state.resource = r;
+      renderResource();
+      showMessage("");
+    }
+  } catch (e) {
+    showMessage(String(e));
+  }
+});
+$("resource-clear").addEventListener("click", () => {
+  state.resource = null;
+  renderResource();
+});
+
+function linkRow(link) {
+  const row = document.createElement("div");
+  row.className = "link";
+  const name = document.createElement("span");
+  name.className = "link-name";
+  name.textContent = link.name;
+  name.title = link.name;
+  const path = document.createElement("span");
+  path.className = "link-path";
+  path.classList.toggle("bad", !link.resourceExists);
+  path.textContent = link.resourceExists ? shortPath(link.resource, 44) : `Missing: ${shortPath(link.resource, 34)}`;
+  path.title = link.resource;
+  const time = document.createElement("span");
+  time.className = "link-time";
+  time.textContent = link.synced ? link.synced.slice(0, 16) : "";
+  time.title = link.synced ? `Last sync ${link.synced}` : "";
+  const sync = document.createElement("button");
+  sync.className = "ghost";
+  sync.innerHTML = '<i class="ti ti-refresh"></i>Sync';
+  sync.addEventListener("click", () => syncLink(link.name, sync, time));
+  const un = document.createElement("button");
+  un.className = "icon";
+  un.title = "Unlink (the pack is kept)";
+  un.setAttribute("aria-label", "Unlink");
+  un.innerHTML = '<i class="ti ti-x"></i>';
+  un.addEventListener("click", () => unlink(link.name));
+  row.append(name, path, time, sync, un);
+  return row;
+}
+
+function renderLinks(list) {
+  const box = $("links");
+  box.replaceChildren(...list.map((l, i) => {
+    const row = linkRow(l);
+    row.style.animationDelay = `${(i + 1) * 45}ms`;
+    return row;
+  }));
+  $("links-empty").hidden = list.length > 0;
+}
+
+async function loadLinks() {
+  setMessage("links-message", "");
+  try {
+    renderLinks(await invoke("links"));
+  } catch (e) {
+    setMessage("links-message", String(e));
+  }
+}
+
+async function syncLink(name, btn, time) {
+  btn.classList.add("busy");
+  setMessage("links-message", "");
+  time.className = "link-time";
+  time.textContent = "Syncing…";
+  try {
+    const list = await invoke("sync_link", { name });
+    renderLinks(list);
+    const fresh = [...$("links").children].find((r) => r.querySelector(".link-name").textContent === name);
+    if (fresh) {
+      const t = fresh.querySelector(".link-time");
+      t.textContent = "Synced just now";
+      t.classList.add("ok");
+    }
+  } catch (e) {
+    btn.classList.remove("busy");
+    time.className = "link-time err";
+    time.textContent = "Sync failed";
+    time.title = String(e);
+    setMessage("links-message", `${name}: ${e}`);
+  }
+}
+
+async function unlink(name) {
+  try {
+    renderLinks(await invoke("unlink", { name }));
+  } catch (e) {
+    setMessage("links-message", String(e));
+  }
+}
+
 $("name").addEventListener("input", () => {
   $("name").classList.remove("bad");
   showMessage("");
@@ -273,10 +267,6 @@ $("name").addEventListener("keydown", (e) => {
 async function create() {
   const btn = $("create");
   if (btn.classList.contains("busy")) return;
-  if (!state.folder) {
-    showMessage("Choose where to save the pack first.");
-    return;
-  }
   const name = cleanName();
   if (!name || /\s/.test(name)) {
     $("name").classList.add("bad");
@@ -284,7 +274,8 @@ async function create() {
     showMessage("Please enter a DLC name without spaces.");
     return;
   }
-  const key = `${state.kind}|${state.folder}|${name}`;
+  const resource = state.kind === "Map" && state.resource ? state.resource.path : null;
+  const key = `${state.kind}|${state.gta?.path}|${name}|${resource}`;
   if (key === state.lastKey && $("result").classList.contains("show")) return;
   btn.classList.add("busy");
   const icon = btn.querySelector("i");
@@ -292,13 +283,16 @@ async function create() {
   showMessage("");
   hideResult();
   try {
-    const res = await invoke("create_pack", { kind: state.kind, name, output: state.folder });
+    const res = await invoke("create_pack", { kind: state.kind, name, resource });
     state.created = res.rpf;
     state.lastKey = key;
-    const used = state.folders.find((f) => samePath(f.path, state.folder)) || { path: state.folder, exists: true };
-    state.folders = [used, ...state.folders.filter((f) => f !== used)];
     clearTimeout(noticeTimer);
-    state.resultTitle = `${state.kind} pack created`;
+    const files = res.meta + res.main;
+    state.resultTitle = files ? `Map pack created with ${files} files, linked` : `${state.kind} pack created`;
+    if (resource) {
+      state.resource = null;
+      renderResource();
+    }
     $("result-title").textContent = state.resultTitle;
     $("result-title").classList.remove("bad");
     $("item").textContent = res.item;
@@ -308,6 +302,12 @@ async function create() {
     requestAnimationFrame(() => $("result").classList.add("show"));
   } catch (e) {
     showMessage(String(e));
+    try {
+      const gta = await invoke("start");
+      if (!gta.valid) applyGta(gta);
+    } catch (err) {
+      showMessage(String(err));
+    }
   } finally {
     btn.classList.remove("busy");
     icon.className = "ti ti-arrow-right";
@@ -339,13 +339,12 @@ $("open").addEventListener("click", async () => {
 
 (async () => {
   moveNavBar(navButtons[0]);
+  renderResource();
   try {
-    const f = await invoke("start");
-    applyFolders(f);
-    if (f.lost) showMessage(`The last folder no longer exists: ${shortPath(f.lost, 44)}`);
+    applyGta(await invoke("start"));
   } catch (e) {
-    renderFolder();
-    showMessage(String(e));
+    applyGta({ path: "", valid: false, dlcpacks: "" });
+    setMessage("setup-message", String(e));
   }
-  $("name").focus();
+  if (state.gta?.valid) $("name").focus();
 })();

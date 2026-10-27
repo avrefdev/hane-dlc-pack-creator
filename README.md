@@ -6,9 +6,19 @@ A rewrite of skylumz's Dlc Pack Creator 1.1 with the same output for map packs, 
 
 ## Usage
 
-1. Type a DLC name (no spaces), pick **Map** or **Vehicle**.
-2. Pick an output folder from the **Save to** list or add a new one. The list keeps up to 8 folders and the last one you used is selected on the next launch.
-3. Click **Create pack**. The pack is written to `<folder>\<name>\dlc.rpf`.
+1. On first launch, select `GTA5.exe` (or `GTA5_Enhanced.exe`). The location is checked on every launch and asked again if the game moved. It can be changed in **Settings**.
+2. Type a DLC name (no spaces), pick **Map** or **Vehicle**.
+3. Click **Create pack**. The pack is written to `<GTA V>\mods\update\x64\dlcpacks\<name>\dlc.rpf`.
+
+### Linking a FiveM map resource
+
+For map packs you can select a FiveM resource folder. Its GTA files are packed automatically:
+
+- `ymt`, `ytd`, `ytyp`, `ymap`, `ynv` go into `<name>_metadata.rpf`
+- other GTA files (`ydr`, `ydd`, `ybn`, `yft`, `ymf`...) go into `<name>.rpf`
+- `.lua` and other FiveM files are skipped, and files with the same name stop the build
+
+The link is saved. When the resource changes, press **Sync** on the **Linked** page to rebuild the pack. The previous pack is kept as `dlc.rpf.bak`.
 4. Copy the `dlclist.xml` line from the result and follow the steps in the **Guide** tab.
 
 ## What is inside a pack
@@ -22,7 +32,7 @@ Archives are written as RPF7 with OPEN encryption, the same format OpenIV and Co
 
 ## Changes from the original
 
-- Output folders are saved in a list and the last used one is preselected on every launch.
+- The GTA V folder is selected once and packs go straight into `mods\update\x64\dlcpacks`.
 - Map packs: identical `content.xml` and `setup2.xml`. The timestamp uses `MM/dd/yyyy HH:mm:ss`.
 - Vehicle packs:
   - `content.xml` used unclosed `txdToLoad`, `txdToUnLoad`, `residentResources` and `unregisterResources` tags. They are now self closing.
